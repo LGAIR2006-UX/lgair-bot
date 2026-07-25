@@ -2,7 +2,9 @@ import logging
 import os
 import random
 import json
+import threading
 from datetime import datetime
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
 from telegram import Update, ForceReply
 from telegram.ext import (
@@ -13,10 +15,24 @@ from telegram.ext import (
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
-# set higher logging level for httpx to avoid all GET and POST requests being logged
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 logger = logging.getLogger(__name__)
+
+# Simple HTTP server to keep Render happy
+class HealthHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header('Content-type', 'text/plain')
+        self.end_headers()
+        self.wfile.write(b'Bot is running!')
+    def log_message(self, format, *args):
+        pass
+
+def start_health_server():
+    port = int(os.environ.get('PORT', 10000))
+    server = HTTPServer(('0.0.0.0', port), HealthHandler)
+    server.serve_forever()
 
 # Conversation states
 UID, NAME, SN, ITEM, AMOUNT, STATUS = range(6)
@@ -193,6 +209,11 @@ async def help_command(update: Update, context) -> None:
 
 def main() -> None:
     """Run the bot."""
+    # Start health check server in background thread
+    health_thread = threading.Thread(target=start_health_server, daemon=True)
+    health_thread.start()
+    logger.info("Health check server started")
+
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not bot_token:
         logger.error("TELEGRAM_BOT_TOKEN environment variable not set.")
